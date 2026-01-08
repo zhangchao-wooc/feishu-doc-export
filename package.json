@@ -1,0 +1,28 @@
+{
+  "name": "feishu-doc-export",
+  "version": "1.0.0",
+  "description": "导出飞书文档（包括文件转储）",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhangchao-wooc/feishu-doc-export.git"
+  },
+  "author": "wooc zhang",
+  "email": "wooc.zhang@gmail.com",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zhangchao-wooc/feishu-doc-export/issues"
+  },
+  "homepage": "https://github.com/zhangchao-wooc/feishu-doc-export#readme",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.964.0",
+    "@aws-sdk/lib-storage": "^3.964.0",
+    "@larksuiteoapi/node-sdk": "^1.56.0",
+    "axios": "^1.13.2",
+    "jszip": "^3.10.1"
+  }
+}
