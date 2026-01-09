@@ -1,4 +1,5 @@
-import fs from 'fs'
+import { join } from 'path';
+import { v4 as uuidv4 } from 'uuid'
 import * as lark from '@larksuiteoapi/node-sdk';
 import { uploadFile } from './aws.js';
 import config from './config.js';
@@ -41,12 +42,40 @@ export const downloadMediaFile = async (fileToken, fileName) => {
         res.writeFile(fileName);
     } catch (error) {
         console.error(error.message)
-        console.log(`D ${fileToken} 失败！`)
+        console.log(`Download ${fileToken} fail！`)
     }
 }
 
-export const saveFeishuFileToAWS = async (fileToken, uploadPath) => {
+export const parseFilenameFromContentDisposition = (contentDisposition) => {
+    if (!contentDisposition) {
+        return null;
+    }
+
+    const filenameMatch = contentDisposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i);
+    if (filenameMatch && filenameMatch[1]) {
+        let filename = decodeURIComponent(filenameMatch[1].replace(/\+/g, ' '));
+        return filename;
+    }
+
+    return null;
+}
+
+export const saveFeishuFileToAWS = async (fileToken, filename) => {
     const res = await getMediaFile(fileToken)
+    let uploadPath = config.aws.key
+    let newFilename = `${uuidv4()}-`
+    if (!filename) {
+        const parseFilename = parseFilenameFromContentDisposition(res.headers['content-disposition'])
+        if (!parseFilename) {
+            console.error("ERROR: Parse filename failed.");
+            throw new Error("Parse filename failed.");
+        }
+        newFilename += parseFilename
+    }
+    newFilename += filename
+
+    uploadPath = join(uploadPath, newFilename)
+
     const url = await uploadFile(uploadPath, res.getReadableStream())
     return url
 }
@@ -127,10 +156,8 @@ export const getSpaceNode = async (spaceId, parentNodeToken = '') => {
 }
 
 export const getSpaceNodeAll2 = async (spaceId, parentNodeToken = '') => {
-    // 递归获取所有层级的节点
     let allNodes = [];
 
-    // 获取当前层级的节点
     const currentLevelNodes = await getSpaceNode(spaceId, parentNodeToken);
     allNodes = allNodes.concat(currentLevelNodes);
 
@@ -192,11 +219,11 @@ export const createExportTask = async (fileExtension, token, type) => {
         })
 
         if (response.code !== 0) {
-            console.error("ERROR: 创建导出任务失败", response);
+            console.error("ERROR: failed to create export task", response);
             throw new Error(`failed to create export task: ${response.msg}`);
         }
 
-        console.log("导出任务创建成功，ticket:", response.data.ticket);
+        console.log("Success to create export task，ticket:", response.data.ticket);
         return response.data.ticket;
     } catch (error) {
         console.error(error.response);
@@ -216,11 +243,11 @@ export const queryExportTask = async (ticket, token) => {
         });
 
         if (response.code !== 0) {
-            console.error("ERROR: 查询导出任务失败", response);
+            console.error("ERROR: failed to query export task", response);
             throw new Error(`failed to query export task: ${response.msg}`);
         }
 
-        console.log("导出任务状态:", response.data.result.job_status);
+        console.log("Export task status:", response.data.result.job_status);
         return response.data.result;
     } catch (error) {
         console.error(error.response);
@@ -237,10 +264,9 @@ export const downloadExportFile = async (fileToken, outputPath) => {
             },
         })
 
-        // 保存文件
         await response.writeFile(outputPath);
 
-        console.log(`文件下载完成，已保存到: ${outputPath}`);
+        console.log(`File download success, address: ${outputPath}`);
 
         return outputPath;
     } catch (error) {
@@ -251,43 +277,38 @@ export const downloadExportFile = async (fileToken, outputPath) => {
 
 export const downloadDocumentAsDocx = async (docToken, docType, outputPath) => {
     try {
-        // 创建导出任务
         const ticket = await createExportTask('docx', docToken, docType);
 
-        // 轮询查询导出任务结果
+        // Query export task status
         let exportResult = null;
         let retryCount = 0;
-        const maxRetries = 30; // 最大重试次数
-        const retryInterval = 2000; // 重试间隔2秒
+        const maxRetries = 30;
+        const retryInterval = 2000;
 
         while (retryCount < maxRetries) {
             exportResult = await queryExportTask(ticket, docToken);
 
             if (exportResult.job_status === 0) {
-                // 导出成功
-                console.log("导出任务完成");
+                console.log("Export task completed successfully!");
                 break;
             } else if (exportResult.job_status === 1 || exportResult.job_status === 2) {
-                // 任务初始化或处理中，等待后重试
                 console.log(
-                    `导出任务处理中，状态: ${exportResult.job_status}，${retryInterval / 1000}秒后重试...`
+                    `Exporting，status: ${exportResult.job_status}，retry in ${retryInterval / 1000} seconds...`
                 );
                 await new Promise((resolve) => setTimeout(resolve, retryInterval));
                 retryCount++;
             } else {
-                // 其他错误状态
-                console.error("ERROR: 导出任务失败", exportResult);
+                console.error("ERROR: export task fail", exportResult);
                 throw new Error(
-                    `导出任务失败，状态码: ${exportResult.job_status}, 错误信息: ${exportResult.job_error_msg}`
+                    `export task fail，status code : ${exportResult.job_status}, error info: ${exportResult.job_error_msg}`
                 );
             }
         }
 
         if (retryCount >= maxRetries) {
-            throw new Error("导出任务超时");
+            throw new Error("Export task timed out");
         }
 
-        // 下载导出文件
         const downloadedFilePath = await downloadExportFile(
             exportResult.file_token,
             outputPath
@@ -295,7 +316,7 @@ export const downloadDocumentAsDocx = async (docToken, docType, outputPath) => {
 
         return downloadedFilePath;
     } catch (error) {
-        console.error("ERROR: 下载文档为docx格式失败:", error.message);
+        console.error("ERROR: failed to download the document in docx format:", error.message);
         throw error;
     }
 }

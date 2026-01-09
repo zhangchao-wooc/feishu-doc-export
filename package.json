@@ -23,6 +23,7 @@
     "@aws-sdk/lib-storage": "^3.964.0",
     "@larksuiteoapi/node-sdk": "^1.56.0",
     "axios": "^1.13.2",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "uuid": "^13.0.0"
   }
 }

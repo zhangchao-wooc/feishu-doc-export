@@ -1,14 +1,30 @@
 import JSZip from "jszip";
 import fs from "fs";
 
-async function replaceFileWithUrls(inputPath, outputPath, urlList) {
-    const data = fs.readFileSync(inputPath);
-    const zip = await JSZip.loadAsync(data);
+export const replaceByKeyword = async (docXml, fileUrlList = []) => {
+    let newDocXml = docXml;
+    let index = 0
+    for (const { keyword, url } of fileUrlList) {
+        if (!keyword || !url) continue;
 
-    // 读取主文档 XML
-    const docXmlPath = "word/document.xml";
-    let docXml = await zip.file(docXmlPath).async("string");
+        // 转义关键词中的正则特殊字符
+        const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+        // 匹配完整的 <w:t>keyword</w:t>（确保是独立文本节点）
+        const regex = new RegExp(`<w:t>${escapedKeyword}</w:t>`, 'g');
+
+        if (!regex.test(newDocXml)) continue;
+
+        const newXml = `<w:t>${url}</w:t>`.trim();
+        console.log(`Replace file: current ${index + 1} replace to ${url}`);
+        newDocXml = newDocXml.replace(regex, newXml);
+        index++
+    }
+    console.log(`Replace file done: ${fileUrlList.length}`);
+    return newDocXml
+}
+
+export const replaceImagesWithUrls = async (docXml, imageUrlList = []) => {
     // 匹配所有图片相关的 XML 片段（简化匹配）
     // 常见结构：<w:p>...<w:drawing>...</w:drawing>...</w:p>
     // 或 <w:pict>...</w:pict>
@@ -16,7 +32,6 @@ async function replaceFileWithUrls(inputPath, outputPath, urlList) {
         /<w:drawing>[\s\S]*?<\/w:drawing>/g;
 
     let match;
-    let index = 0;
     let newDocXml = docXml;
 
     // 由于 JS 不支持“多次替换不同内容”的全局替换，我们循环处理
@@ -28,15 +43,41 @@ async function replaceFileWithUrls(inputPath, outputPath, urlList) {
     // 从后往前替换（避免索引偏移）
     for (let i = matches.length - 1; i >= 0; i--) {
         const imgBlock = matches[i];
-        const url = urlList[i] || `https://placeholder.com/image-${i + 1}.jpg`;
+        const url = imageUrlList[i].url;
 
         // 创建一个简单的段落：只包含 URL 文本
         const urlParagraph = `<w:t>${url}</w:t>`.trim();
 
         newDocXml = newDocXml.replace(imgBlock, urlParagraph);
+        console.log(`Replace image: current ${i + 1} replace to ${url}`);
+    }
+    console.log(`Replace image done: ${imageUrlList.length}`);
+    return newDocXml
+}
+
+export const replaceFileWithUrls = async (inputPath, outputPath, urlList = []) => {
+    if (urlList.length === 0) {
+        console.log('No file to replace')
+        return
+    }
+    const data = fs.readFileSync(inputPath);
+    const zip = await JSZip.loadAsync(data);
+
+    // 读取主文档 XML
+    const docXmlPath = "word/document.xml";
+    let docXml = await zip.file(docXmlPath).async("string");
+    let newDocXml = docXml;
+
+    const imageUrlList = urlList.filter(item => item.type === 'Image').reverse();
+    const fileUrlList = urlList.filter(item => item.type === 'File').reverse();
+
+    if (imageUrlList.length != 0) {
+        newDocXml = await replaceImagesWithUrls(newDocXml, imageUrlList)
     }
 
-    console.log('File replace total: ', matches.length)
+    if (fileUrlList.length != 0) {
+        newDocXml = await replaceByKeyword(newDocXml, fileUrlList)
+    }
 
     // 更新 document.xml
     zip.file(docXmlPath, newDocXml);
@@ -52,8 +93,19 @@ async function replaceFileWithUrls(inputPath, outputPath, urlList) {
 
     fs.writeFileSync(outputPath, outputBuffer);
     console.log(
-        `✅ 已将 ${matches.length} 张图片替换为 URL，输出到: ${outputPath}`
+        `✅ 📁 已将 ${urlList.length} 张图片替换为 URL，输出到: ${outputPath}`
     );
 }
 
-export default replaceFileWithUrls
+export const queryDocumentXML = async (inputPath, outputPath) => {
+    const data = fs.readFileSync(inputPath);
+    const zip = await JSZip.loadAsync(data);
+
+    // 读取主文档 XML
+    const docXmlPath = "word/document.xml";
+    let docXml = await zip.file(docXmlPath).async("string");
+    fs.writeFileSync(outputPath, docXml)
+    return
+}
+
+// queryDocumentXML('/Users/wooc/Desktop/my/feishu-doc-export/feishu-docs/document/使用丽景新款相机修改步骤.docx', './test.xml')
