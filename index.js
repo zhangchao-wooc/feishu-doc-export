@@ -17,22 +17,16 @@ let report = {
 }
 const outputPath = join(__dirname, `${config.output.path}`);
 const outputReportPath = join(__dirname, `${config.output.path}`, 'report');
-const outputOriginalDocumentPath = join(__dirname, `${config.output.path}`, 'original_document');
-const outputConvertedDocumentPath = join(__dirname, `${config.output.path}`, 'converted_document');
+const outputDocumentPath = join(__dirname, `${config.output.path}`, 'documents');
 
 if (!fs.existsSync(outputPath)) {
     console.log(`📁 Create directory: ${outputPath}`);
     await mkdir(outputPath, { recursive: true });
 }
 
-if (!fs.existsSync(outputOriginalDocumentPath)) {
-    console.log(`📁 Create origina document directory: ${outputOriginalDocumentPath}`);
-    await mkdir(outputOriginalDocumentPath, { recursive: true });
-}
-
-if (!fs.existsSync(outputConvertedDocumentPath)) {
-    console.log(`📁 Create converted document directory: ${outputConvertedDocumentPath}`);
-    await mkdir(outputConvertedDocumentPath, { recursive: true });
+if (!fs.existsSync(outputDocumentPath)) {
+    console.log(`📁 Create origina document directory: ${outputDocumentPath}`);
+    await mkdir(outputDocumentPath, { recursive: true });
 }
 
 if (!fs.existsSync(outputReportPath)) {
@@ -53,7 +47,7 @@ const applyNodeChangesAndSave = async (spaceNode, action, allSpaceNode) => {
 
         const safeFileName = item.title.replace(/\//g, "_");
 
-        const downloadedFilePath = await feishu.downloadDocumentAsDocx(item.obj_token, 'docx', join(outputOriginalDocumentPath, `${safeFileName}.docx`))
+        const downloadedFilePath = await feishu.downloadDocumentAsDocx(item.obj_token, 'docx', join(outputDocumentPath, `${safeFileName}.docx`))
         console.log('Downloaded docx filePath: ', downloadedFilePath)
 
         const documentBlockAll = await feishu.getDocumentBlockAll(item.obj_token)
@@ -87,7 +81,7 @@ const applyNodeChangesAndSave = async (spaceNode, action, allSpaceNode) => {
 
         if (replaceFileList.length != 0) {
             console.log('Document haven file or media, start replace file with url.', `total: ${replaceFileList.length}.`)
-            await replaceFileWithUrls(downloadedFilePath, join(outputConvertedDocumentPath, `${safeFileName}.docx`), replaceFileList)
+            await replaceFileWithUrls(downloadedFilePath, replaceFileList)
         } else {
             console.log('There are no files or media files in the document, skip replace file with url')
         }

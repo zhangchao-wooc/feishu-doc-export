@@ -55,12 +55,12 @@ export const replaceImagesWithUrls = async (docXml, imageUrlList = []) => {
     return newDocXml
 }
 
-export const replaceFileWithUrls = async (inputPath, outputPath, urlList = []) => {
+export const replaceFileWithUrls = async (filePath, urlList = []) => {
     if (urlList.length === 0) {
         console.log('No file to replace')
         return
     }
-    const data = fs.readFileSync(inputPath);
+    const data = fs.readFileSync(filePath);
     const zip = await JSZip.loadAsync(data);
 
     // 读取主文档 XML
@@ -91,9 +91,9 @@ export const replaceFileWithUrls = async (inputPath, outputPath, urlList = []) =
         compression: "DEFLATE",
     });
 
-    fs.writeFileSync(outputPath, outputBuffer);
+    fs.writeFileSync(filePath, outputBuffer);
     console.log(
-        `✅ 📁 已将 ${urlList.length} 张图片替换为 URL，输出到: ${outputPath}`
+        `✅ 📁 已将 ${urlList.length} 张图片替换为 URL，输出到: ${filePath}`
     );
 }
 
