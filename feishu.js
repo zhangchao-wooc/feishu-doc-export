@@ -1,7 +1,12 @@
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid'
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createHash } from 'node:crypto';
+import fs from 'fs';
+import os from 'os';
 import * as lark from '@larksuiteoapi/node-sdk';
-import { uploadFile } from './aws.js';
+import { uploadFile, findObjectByFilename } from './aws.js';
 import config from './config.js';
 
 export const client = new lark.Client({
@@ -46,7 +51,7 @@ export const downloadMediaFile = async (fileToken, fileName) => {
     }
 }
 
-export const parseFilenameFromContentDisposition = (contentDisposition) => {
+export const parseExtensionFromContentDisposition = (contentDisposition) => {
     if (!contentDisposition) {
         return null;
     }
@@ -54,29 +59,86 @@ export const parseFilenameFromContentDisposition = (contentDisposition) => {
     const filenameMatch = contentDisposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i);
     if (filenameMatch && filenameMatch[1]) {
         let filename = decodeURIComponent(filenameMatch[1].replace(/\+/g, ' '));
-        return filename;
+        const lastDot = filename.lastIndexOf('.');
+        if (lastDot > 0) {
+            return filename.substring(lastDot + 1).toLowerCase();
+        }
     }
 
     return null;
 }
 
+export const parseFileSizeFromContentLength = (contentLength) => {
+    if (!contentLength) {
+        return null;
+    }
+
+    const sizeUnits = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = parseInt(contentLength);
+    let unitIndex = 0;
+
+    while (size >= 1024 && unitIndex < sizeUnits.length - 1) {
+        size /= 1024;
+        unitIndex++;
+    }
+
+    return `${size.toFixed(2)} ${sizeUnits[unitIndex]}`;
+}
+
 export const saveFeishuFileToAWS = async (fileToken, filename) => {
     const res = await getMediaFile(fileToken)
     let uploadPath = config.aws.key
-    let newFilename = `${uuidv4()}-`
-    if (!filename) {
-        const parseFilename = parseFilenameFromContentDisposition(res.headers['content-disposition'])
-        if (!parseFilename) {
-            console.error("ERROR: Parse filename failed.");
-            throw new Error("Parse filename failed.");
-        }
-        newFilename += parseFilename
+
+    // 获取文件后缀
+    let fileExtension = filename ? filename.substring(filename.lastIndexOf('.') + 1) : null
+    if (!fileExtension) {
+        fileExtension = parseExtensionFromContentDisposition(res?.headers['content-disposition'] || '')
     }
-    newFilename += filename
+    if (!fileExtension) {
+        throw new Error('Failed to obtain the file extension！')
+    }
 
-    uploadPath = join(uploadPath, newFilename)
 
-    const url = await uploadFile(uploadPath, res.getReadableStream())
+
+    // 将远程流写入临时文件，同时计算 md5
+    const readable = res.getReadableStream && res.getReadableStream();
+    if (!readable) {
+        throw new Error('No readable stream from getMediaFile response');
+    }
+
+    let contentLength = 0
+    const tmpPath = join(os.tmpdir(), `${uuidv4()}.${fileExtension}`)
+    const writeStream = fs.createWriteStream(tmpPath);
+
+    const hash = createHash('md5');
+    const md5Transform = new Transform({
+        transform(chunk, encoding, callback) {
+            contentLength += chunk.length;
+            hash.update(chunk);
+            callback(null, chunk);
+        }
+    });
+
+    await pipeline(readable, md5Transform, writeStream);
+    const md5 = hash.digest('hex');
+    const fileName = `${md5}.${fileExtension}`
+
+
+    // 检查是否已有相同 md5 的文件
+    const existUrl = await findObjectByFilename(fileName);
+    if (existUrl) {
+        console.log(`🈶 File already exists in AWS: ${existUrl}`);
+        try { fs.unlinkSync(tmpPath) } catch (e) { }
+        return existUrl;
+    }
+
+    // 上传以 md5.ext 为文件名
+    uploadPath = join(uploadPath, fileName)
+
+    const readForUpload = fs.createReadStream(tmpPath);
+    const url = await uploadFile(uploadPath, readForUpload, contentLength)
+
+    try { fs.unlinkSync(tmpPath) } catch (e) { }
     return url
 }
 
@@ -102,19 +164,26 @@ export const getDocContentDocx = async (docToken) => {
     return res.data.content
 }
 
-export const getDocumentBlockAll = async (documentId) => {
-    for await (const item of await client.docx.v1.documentBlock.listWithIterator({
+export const getDocumentBlockAll = async (documentId, page_token = '') => {
+    const response = await client.docx.v1.documentBlock.list({
         path: {
             document_id: documentId,
         },
         params: {
             page_size: 500,
             document_revision_id: -1,
+            page_token: page_token,
         },
+    });
+
+    let allItems = response.data.items || [];
+
+    if (response.data.has_more) {
+        const moreItems = await getDocumentBlockAll(documentId, response.data.page_token);
+        allItems = allItems.concat(moreItems);
     }
-    )) {
-        return item.items;
-    }
+
+    return allItems;
 }
 
 export const getSpaceNode = async (spaceId, parentNodeToken = '') => {
@@ -256,7 +325,7 @@ export const queryExportTask = async (ticket, token) => {
 }
 
 export const downloadExportFile = async (fileToken, outputPath) => {
-    console.log('downloadExportFile', fileToken, outputPath)
+    console.log('⬇️  Download export file', fileToken, outputPath)
     try {
         const response = await client.drive.v1.exportTask.download({
             path: {
@@ -266,7 +335,7 @@ export const downloadExportFile = async (fileToken, outputPath) => {
 
         await response.writeFile(outputPath);
 
-        console.log(`File download success, address: ${outputPath}`);
+        console.log(`✅ File download success, address: ${outputPath}`);
 
         return outputPath;
     } catch (error) {

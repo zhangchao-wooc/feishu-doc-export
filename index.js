@@ -48,7 +48,6 @@ const applyNodeChangesAndSave = async (spaceNode, action, allSpaceNode) => {
         const safeFileName = item.title.replace(/\//g, "_");
 
         const downloadedFilePath = await feishu.downloadDocumentAsDocx(item.obj_token, 'docx', join(outputDocumentPath, `${safeFileName}.docx`))
-        console.log('Downloaded docx filePath: ', downloadedFilePath)
 
         const documentBlockAll = await feishu.getDocumentBlockAll(item.obj_token)
 
@@ -58,7 +57,6 @@ const applyNodeChangesAndSave = async (spaceNode, action, allSpaceNode) => {
                 const fileToken = item.file.token
                 const fileName = item.file.name
                 const url = await feishu.saveFeishuFileToAWS(fileToken, fileName)
-                console.log(`📁 Upload success (File): ${url}`)
                 replaceFileList.push({
                     name: fileName,
                     keyword: `[${fileName}]`,
@@ -69,7 +67,6 @@ const applyNodeChangesAndSave = async (spaceNode, action, allSpaceNode) => {
                 const fileToken = item.image.token
                 const fileName = ''
                 const url = await feishu.saveFeishuFileToAWS(fileToken, fileName)
-                console.log(`📁 Upload success (Image): ${url}`)
                 replaceFileList.push({
                     name: fileName,
                     keyword: fileName,
@@ -81,7 +78,11 @@ const applyNodeChangesAndSave = async (spaceNode, action, allSpaceNode) => {
 
         if (replaceFileList.length != 0) {
             console.log('Document haven file or media, start replace file with url.', `total: ${replaceFileList.length}.`)
-            await replaceFileWithUrls(downloadedFilePath, replaceFileList)
+            try {
+                await replaceFileWithUrls(downloadedFilePath, replaceFileList)
+            } catch (error) {
+                console.error('Error replacing file with URLs:', error, JSON.stringify(replaceFileList, null, 2));
+            }
         } else {
             console.log('There are no files or media files in the document, skip replace file with url')
         }
@@ -130,7 +131,8 @@ const queryLocalSpaceNode = async (filePath) => {
 
 try {
     if (fs.existsSync(spaceNodeFilePath)) {
-        LocalAllSpaceNode = queryLocalSpaceNode(spaceNodeFilePath)
+        LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
+        console.log('Local space node count: ', spaceNodeFilePath, LocalAllSpaceNode.length)
         const { AddSpaceNodeList,
             DeleteSpaceNodeList,
             UpdateSpaceNodeList } = diffSpaceNodes(LocalAllSpaceNode, NewAllSpaceNode)
@@ -138,7 +140,7 @@ try {
             console.log('No new nodes were added: ', AddSpaceNodeList.length)
         } else {
             console.log('New node added: ', AddSpaceNodeList.length)
-            LocalAllSpaceNode = queryLocalSpaceNode(spaceNodeFilePath)
+            LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await applyNodeChangesAndSave(AddSpaceNodeList, 'ADD', LocalAllSpaceNode)
         }
 
@@ -147,7 +149,7 @@ try {
 
         } else {
             console.log('Update node: ', UpdateSpaceNodeList.length)
-            LocalAllSpaceNode = queryLocalSpaceNode(spaceNodeFilePath)
+            LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await applyNodeChangesAndSave(UpdateSpaceNodeList, 'UPDATE', LocalAllSpaceNode)
         }
 
@@ -156,7 +158,7 @@ try {
 
         } else {
             console.log('Delete node: ', DeleteSpaceNodeList.length)
-            LocalAllSpaceNode = queryLocalSpaceNode(spaceNodeFilePath)
+            LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await deleteSpaceNode(DeleteSpaceNodeList, LocalAllSpaceNode)
         }
 
@@ -168,6 +170,7 @@ try {
 } catch (error) {
     console.error(error.message)
     fs.writeFileSync(join(outputReportPath, `${getFormattedCurrentTime()}.json`), JSON.stringify(report, null, 2))
+    throw new Error(error.message)
 }
 
 

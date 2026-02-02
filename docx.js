@@ -13,7 +13,9 @@ export const replaceByKeyword = async (docXml, fileUrlList = []) => {
         // 匹配完整的 <w:t>keyword</w:t>（确保是独立文本节点）
         const regex = new RegExp(`<w:t>${escapedKeyword}</w:t>`, 'g');
 
-        if (!regex.test(newDocXml)) continue;
+        if (!regex.test(newDocXml)) {
+            throw new Error(`replaceByKeyword: Keyword not found in document XML: ${keyword}`)
+        }
 
         const newXml = `<w:t>${url}</w:t>`.trim();
         console.log(`Replace file: current ${index + 1} replace to ${url}`);
@@ -38,6 +40,12 @@ export const replaceImagesWithUrls = async (docXml, imageUrlList = []) => {
     const matches = [];
     while ((match = imageParagraphRegex.exec(docXml)) !== null) {
         matches.push(match[0]);
+    }
+
+    console.log(`Replace image: total ${matches.length}, imageUrlList length ${imageUrlList.length}`);
+
+    if (matches.length !== imageUrlList.length) {
+        throw new Error(`replaceImagesWithUrls: Mismatch between image blocks (${matches.length}) and URLs (${imageUrlList.length})`);
     }
 
     // 从后往前替换（避免索引偏移）
@@ -68,8 +76,8 @@ export const replaceFileWithUrls = async (filePath, urlList = []) => {
     let docXml = await zip.file(docXmlPath).async("string");
     let newDocXml = docXml;
 
-    const imageUrlList = urlList.filter(item => item.type === 'Image').reverse();
-    const fileUrlList = urlList.filter(item => item.type === 'File').reverse();
+    const imageUrlList = urlList.filter(item => item.type === 'Image');
+    const fileUrlList = urlList.filter(item => item.type === 'File');
 
     if (imageUrlList.length != 0) {
         newDocXml = await replaceImagesWithUrls(newDocXml, imageUrlList)
@@ -107,5 +115,3 @@ export const queryDocumentXML = async (inputPath, outputPath) => {
     fs.writeFileSync(outputPath, docXml)
     return
 }
-
-// queryDocumentXML('/Users/wooc/Desktop/my/feishu-doc-export/feishu-docs/document/使用丽景新款相机修改步骤.docx', './test.xml')
