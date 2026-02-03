@@ -42,83 +42,103 @@ const applyNodeChangesAndSave = async (spaceNode, action, allSpaceNode) => {
     let newAllSpaceNode = allSpaceNode
     let index = 0
 
-    for (const item of spaceNode) {
-        console.log('Current document info: ', `obj_token: ${item.obj_token}`, `title: ${item.title}`);
+    try {
+        for (const item of spaceNode) {
+            console.log('Current document info: ', `obj_token: ${item.obj_token}`, `title: ${item.title}`);
 
-        const safeFileName = item.title.replace(/\//g, "_");
+            const safeFileName = item.title.replace(/\//g, "_");
 
-        const downloadedFilePath = await feishu.downloadDocumentAsDocx(item.obj_token, 'docx', join(outputDocumentPath, `${safeFileName}.docx`))
+            const downloadedFilePath = await feishu.downloadDocumentAsDocx(item.obj_token, 'docx', join(outputDocumentPath, `${safeFileName}.docx`))
 
-        const documentBlockAll = await feishu.getDocumentBlockAll(item.obj_token)
+            const documentBlockAll = await feishu.getDocumentBlockAll(item.obj_token)
 
-        const replaceFileList = []
-        for (const item of documentBlockAll) {
-            if (item.block_type === 23) {
-                const fileToken = item.file.token
-                const fileName = item.file.name
-                const url = await feishu.saveFeishuFileToAWS(fileToken, fileName)
-                replaceFileList.push({
-                    name: fileName,
-                    keyword: `[${fileName}]`,
-                    url: url,
-                    type: 'File'
-                })
-            } else if (item.block_type === 27) {
-                const fileToken = item.image.token
-                const fileName = ''
-                const url = await feishu.saveFeishuFileToAWS(fileToken, fileName)
-                replaceFileList.push({
-                    name: fileName,
-                    keyword: fileName,
-                    url: url,
-                    type: 'Image'
-                })
+            const replaceFileList = []
+            for (const item of documentBlockAll) {
+                if (item.block_type === 23) {
+                    const fileToken = item.file.token
+                    const fileName = item.file.name
+                    const url = await feishu.saveFeishuFileToAWS(fileToken, fileName)
+                    replaceFileList.push({
+                        name: fileName,
+                        keyword: `[${fileName}]`,
+                        url: url,
+                        type: 'File'
+                    })
+                } else if (item.block_type === 27) {
+                    const fileToken = item.image.token
+                    const fileName = ''
+                    const url = await feishu.saveFeishuFileToAWS(fileToken, fileName)
+                    replaceFileList.push({
+                        name: fileName,
+                        keyword: fileName,
+                        url: url,
+                        type: 'Image'
+                    })
+                }
             }
-        }
 
-        if (replaceFileList.length != 0) {
-            console.log('Document haven file or media, start replace file with url.', `total: ${replaceFileList.length}.`)
-            try {
-                await replaceFileWithUrls(downloadedFilePath, replaceFileList)
-            } catch (error) {
-                console.error('Error replacing file with URLs:', error, JSON.stringify(replaceFileList, null, 2));
+            if (replaceFileList.length != 0) {
+                console.log('Document haven file or media, start replace file with url.', `total: ${replaceFileList.length}.`)
+                try {
+                    await replaceFileWithUrls(downloadedFilePath, replaceFileList)
+                } catch (error) {
+                    throw new Error('Error replacing file with URLs:', error);
+                }
+            } else {
+                console.log('There are no files or media files in the document, skip replace file with url')
             }
-        } else {
-            console.log('There are no files or media files in the document, skip replace file with url')
-        }
 
-        if (action === 'ADD') {
-            console.log('Update local space node file list: ', `obj_token: ${item.obj_token}`, `title: ${item.title}`);
-            newAllSpaceNode.push(item)
-            report.add.push(item)
-            fs.writeFileSync(spaceNodeFilePath, JSON.stringify(newAllSpaceNode, null, 2))
-        } else if (action === 'UPDATE') {
-            console.log('Update space node: ', spaceNode.length)
-            const index = spaceNode.filter((node) => node.obj_token === item.obj_token)
-            if (index !== -1) {
-                newAllSpaceNode[index] = item
-                report.update.push(item)
-                fs.writeFileSync(spaceNodeFilePath, JSON.stringify(newAllSpaceNode, null, 2))
+            switch (action) {
+                case 'ADD':
+                    console.log('Update local space node file list: ', `obj_token: ${item.obj_token}`, `title: ${item.title}`);
+                    newAllSpaceNode.push(item)
+                    report.add.push(item)
+                    break;
+                case 'UPDATE':
+                    console.log('Update space node: ', spaceNode.length)
+                    const index = spaceNode.filter((node) => node.obj_token === item.obj_token)
+                    if (index !== -1) {
+                        newAllSpaceNode[index] = item
+                        report.update.push(item)
+                    }
+                    break;
+                default:
+                    console.log('No action specified.')
             }
+            console.log('✅ Complete Document: ', `${index + 1}/${spaceNode.length} \n`)
+            index++;
         }
-
-        console.log('✅ Complete Document: ', `${index + 1}/${spaceNode.length} \n`)
-        index++;
+        fs.writeFileSync(spaceNodeFilePath, JSON.stringify(newAllSpaceNode, null, 2))
+    } catch (error) {
+        fs.writeFileSync(spaceNodeFilePath, JSON.stringify(newAllSpaceNode, null, 2))
+        console.error('Error:', error);
+        throw new Error('Error replacing file with URLs:', error);
     }
 }
 
 const deleteSpaceNode = async (deleteSpaceNodeList, allSpaceNode) => {
     let newAllSpaceNode = allSpaceNode
-    for (const item of deleteSpaceNodeList) {
-        console.log('Delete space node: ', item.title)
-        const index = newAllSpaceNode.findIndex((node) => node.obj_token === item.obj_token)
-        if (index !== -1) {
-            newAllSpaceNode.splice(index, 1)
+
+    try {
+        for (const item of deleteSpaceNodeList) {
+            console.log('Delete space node: ', item.title)
+            const index = allSpaceNode.findIndex((node) => node.obj_token === item.obj_token)
+            if (index !== -1) {
+                newAllSpaceNode.splice(index, 1)
+                const safeFileName = node.title.replace(/\//g, "_");
+                const filePath = join(outputDocumentPath, `${safeFileName}.docx`)
+                fs.deleteFileSync(filePath, 'utf8')
+                report.delete.push(item)
+            }
         }
+        fs.writeFileSync(spaceNodeFilePath, JSON.stringify(newAllSpaceNode, null, 2))
+        console.log('✅ Delete Complete Document. ', `delete_numbers: ${deleteSpaceNodeList.length} total: ${allSpaceNode.length} delete_result_numbers: ${newAllSpaceNode}\n`)
+    } catch (error) {
+        fs.writeFileSync(spaceNodeFilePath, JSON.stringify(newAllSpaceNode, null, 2))
+        console.error('Error:', error);
+        throw new Error('Error replacing file with URLs:', error);
     }
-    report.delete = deleteSpaceNodeList
-    fs.writeFileSync(spaceNodeFilePath, JSON.stringify(newAllSpaceNode, null, 2))
-    console.log('✅ Delete Complete Document. ', `delete_numbers: ${deleteSpaceNodeList.length} total: ${allSpaceNode.length} delete_result_numbers: ${newAllSpaceNode}\n`)
+
 }
 
 const queryLocalSpaceNode = async (filePath) => {
@@ -136,32 +156,23 @@ try {
         const { AddSpaceNodeList,
             DeleteSpaceNodeList,
             UpdateSpaceNodeList } = diffSpaceNodes(LocalAllSpaceNode, NewAllSpaceNode)
-        if (AddSpaceNodeList.length === 0) {
-            console.log('No new nodes were added: ', AddSpaceNodeList.length)
-        } else {
+        if (AddSpaceNodeList.length !== 0) {
             console.log('New node added: ', AddSpaceNodeList.length)
             LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await applyNodeChangesAndSave(AddSpaceNodeList, 'ADD', LocalAllSpaceNode)
         }
 
-        if (UpdateSpaceNodeList.length === 0) {
-            console.log('No updated nodes: ', UpdateSpaceNodeList.length)
-
-        } else {
+        if (UpdateSpaceNodeList.length !== 0) {
             console.log('Update node: ', UpdateSpaceNodeList.length)
             LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await applyNodeChangesAndSave(UpdateSpaceNodeList, 'UPDATE', LocalAllSpaceNode)
         }
 
-        if (DeleteSpaceNodeList.length === 0) {
-            console.log('No deleted nodes: ', DeleteSpaceNodeList.length)
-
-        } else {
+        if (DeleteSpaceNodeList.length !== 0) {
             console.log('Delete node: ', DeleteSpaceNodeList.length)
             LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await deleteSpaceNode(DeleteSpaceNodeList, LocalAllSpaceNode)
         }
-
     } else {
         console.log('New node added: ', NewAllSpaceNode.length)
         await applyNodeChangesAndSave(NewAllSpaceNode, 'ADD', [])

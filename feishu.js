@@ -65,7 +65,7 @@ export const parseExtensionFromContentDisposition = (contentDisposition) => {
         }
     }
 
-    return null;
+    return '';
 }
 
 export const parseFileSizeFromContentLength = (contentLength) => {
@@ -89,16 +89,13 @@ export const saveFeishuFileToAWS = async (fileToken, filename) => {
     const res = await getMediaFile(fileToken)
     let uploadPath = config.aws.key
 
-    // 获取文件后缀
+    // 获取文件后缀, 某些情况下会为空则以无后缀名上传，例终端的截图
     let fileExtension = filename ? filename.substring(filename.lastIndexOf('.') + 1) : null
     if (!fileExtension) {
-        fileExtension = parseExtensionFromContentDisposition(res?.headers['content-disposition'] || '')
+        const contentDisposition = res?.headers['content-disposition'] || ''
+        fileExtension = parseExtensionFromContentDisposition(contentDisposition)
     }
-    if (!fileExtension) {
-        throw new Error('Failed to obtain the file extension！')
-    }
-
-
+    fileExtension = fileExtension ? `.${fileExtension}` : ''
 
     // 将远程流写入临时文件，同时计算 md5
     const readable = res.getReadableStream && res.getReadableStream();
@@ -107,7 +104,8 @@ export const saveFeishuFileToAWS = async (fileToken, filename) => {
     }
 
     let contentLength = 0
-    const tmpPath = join(os.tmpdir(), `${uuidv4()}.${fileExtension}`)
+
+    const tmpPath = join(os.tmpdir(), `${uuidv4()}${fileExtension}`)
     const writeStream = fs.createWriteStream(tmpPath);
 
     const hash = createHash('md5');
@@ -121,7 +119,7 @@ export const saveFeishuFileToAWS = async (fileToken, filename) => {
 
     await pipeline(readable, md5Transform, writeStream);
     const md5 = hash.digest('hex');
-    const fileName = `${md5}.${fileExtension}`
+    const fileName = `${md5}${fileExtension}`
 
 
     // 检查是否已有相同 md5 的文件
@@ -249,6 +247,7 @@ export const getSpaceNodeAll2 = async (spaceId, parentNodeToken = '') => {
     return allNodes;
 }
 
+// 官方 listWithIterator 接口有 bug 待修复，故使用 getSpaceNodeAll2 处理节点。
 export const getSpaceNodeAll = async (spaceId) => {
     // for await (const item of await client.wiki.v2.spaceNode.listWithIterator({
     //     path: {

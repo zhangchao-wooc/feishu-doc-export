@@ -1,5 +1,5 @@
 # feishu-doc-export
-导出飞书文档（文件转储）
+导出飞书文档（资源转储）
 
 ## 运行
 
@@ -34,6 +34,9 @@ node index.js
 
 ### 流式上传  
 使用流式上传，避免上传过大文件导致内存溢出。
+
+### 文件替换
+根据飞书接口返回的文件块的顺序，顺序替换 docx 中匹配到的资源文件。然后删除 docx 中本地的静态资源。
 
 ## 参考文档
 飞书开发文档：https://open.feishu.cn/document/server-side-sdk/nodejs-sdk/preparation-before-development  
