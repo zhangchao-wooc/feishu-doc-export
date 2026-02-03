@@ -1,14 +1,14 @@
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import fs from 'fs'
 import { mkdir } from 'node:fs/promises';
 import config from './config.js';
+import __dirname from './dirname.js';
 import * as feishu from './feishu.js'
 import diffSpaceNodes from './utils/diffSpaceNodes.js';
 import getFormattedCurrentTime from './utils/getFormattedCurrentTime.js';
 import { replaceFileWithUrls } from './docx.js'
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import generateStructureDirectory from './generateStructureDirectory.js'
+import cleanupReports from './utils/clearReports.js'
 
 let report = {
     add: [],
@@ -36,7 +36,7 @@ if (!fs.existsSync(outputReportPath)) {
 
 let LocalAllSpaceNode = []
 const NewAllSpaceNode = await feishu.getSpaceNodeAll2(config.feishu.spaceId)
-const spaceNodeFilePath = join(__dirname, config.output.path, 'spaceNode.json')
+const spaceNodeFilePath = join(__dirname, config.output.path, 'node.json')
 
 const applyNodeChangesAndSave = async (spaceNode, action, allSpaceNode) => {
     let newAllSpaceNode = allSpaceNode
@@ -125,7 +125,7 @@ const deleteSpaceNode = async (deleteSpaceNodeList, allSpaceNode) => {
             const index = allSpaceNode.findIndex((node) => node.obj_token === item.obj_token)
             if (index !== -1) {
                 newAllSpaceNode.splice(index, 1)
-                const safeFileName = node.title.replace(/\//g, "_");
+                const safeFileName = item.title.replace(/\//g, "_");
                 const filePath = join(outputDocumentPath, `${safeFileName}.docx`)
                 fs.deleteFileSync(filePath, 'utf8')
                 report.delete.push(item)
@@ -152,32 +152,38 @@ const queryLocalSpaceNode = async (filePath) => {
 try {
     if (fs.existsSync(spaceNodeFilePath)) {
         LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
-        console.log('Local space node count: ', spaceNodeFilePath, LocalAllSpaceNode.length)
+        console.log('Local space node count: ', spaceNodeFilePath, LocalAllSpaceNode.length, '\n ')
         const { AddSpaceNodeList,
             DeleteSpaceNodeList,
             UpdateSpaceNodeList } = diffSpaceNodes(LocalAllSpaceNode, NewAllSpaceNode)
+
         if (AddSpaceNodeList.length !== 0) {
-            console.log('New node added: ', AddSpaceNodeList.length)
+            console.log('🆕 New node added: ', AddSpaceNodeList.length)
             LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await applyNodeChangesAndSave(AddSpaceNodeList, 'ADD', LocalAllSpaceNode)
         }
 
         if (UpdateSpaceNodeList.length !== 0) {
-            console.log('Update node: ', UpdateSpaceNodeList.length)
+            console.log('🆙 Update node: ', UpdateSpaceNodeList.length)
             LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await applyNodeChangesAndSave(UpdateSpaceNodeList, 'UPDATE', LocalAllSpaceNode)
         }
 
         if (DeleteSpaceNodeList.length !== 0) {
-            console.log('Delete node: ', DeleteSpaceNodeList.length)
+            console.log('🗑️ Delete node: ', DeleteSpaceNodeList.length)
             LocalAllSpaceNode = await queryLocalSpaceNode(spaceNodeFilePath)
             await deleteSpaceNode(DeleteSpaceNodeList, LocalAllSpaceNode)
         }
     } else {
-        console.log('New node added: ', NewAllSpaceNode.length)
+        console.log('🆕 New node added: ', NewAllSpaceNode.length)
         await applyNodeChangesAndSave(NewAllSpaceNode, 'ADD', [])
     }
     fs.writeFileSync(join(outputReportPath, `${getFormattedCurrentTime()}.json`), JSON.stringify(report, null, 2))
+
+    await cleanupReports(outputReportPath)
+
+    console.log('⏳ Generate structure directory...')
+    await generateStructureDirectory()
 } catch (error) {
     console.error(error.message)
     fs.writeFileSync(join(outputReportPath, `${getFormattedCurrentTime()}.json`), JSON.stringify(report, null, 2))

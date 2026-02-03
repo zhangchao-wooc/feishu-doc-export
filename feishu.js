@@ -186,7 +186,6 @@ export const getDocumentBlockAll = async (documentId, page_token = '') => {
 
 export const getSpaceNode = async (spaceId, parentNodeToken = '') => {
     let allNodes = [];
-    let pageToken = "";
     let hasMore = true;
 
     while (hasMore) {
@@ -202,17 +201,15 @@ export const getSpaceNode = async (spaceId, parentNodeToken = '') => {
             })
 
             if (response.code !== 0) {
-                console.error("ERROR: 获取知识空间子节点失败", response);
-                throw new Error(`failed to get space nodes: ${response.msg}`);
+                throw new Error(`Failed to get space nodes: ${response.msg}`);
             }
 
             if (response.data && response.data.items) {
                 allNodes = allNodes.concat(response.data.items);
-                console.log(`获取到 ${response.data.items.length} 个节点`);
+                console.log(`Obtained ${response.data.items.length} nodes`);
             }
 
             hasMore = response.data.has_more;
-            pageToken = response.data.page_token;
         } catch (error) {
             console.error(error.response);
             throw new Error(`Error getting space nodes: ${error.message}`);
@@ -222,25 +219,28 @@ export const getSpaceNode = async (spaceId, parentNodeToken = '') => {
     return allNodes
 }
 
-export const getSpaceNodeAll2 = async (spaceId, parentNodeToken = '') => {
+export const getSpaceNodeAll2 = async (spaceId, parentNodeToken = '', structure = false) => {
     let allNodes = [];
 
     const currentLevelNodes = await getSpaceNode(spaceId, parentNodeToken);
     allNodes = allNodes.concat(currentLevelNodes);
-
-    // 对每个有子节点的节点递归获取其子节点
-
-    // 保持目录层级
-    // currentLevelNodes.forEach(async (node, index) => {
-    //     if (node.has_child) {
-    //         const childNodes = await getSpaceNodeAll2(spaceId, node.node_token);
-    //         allNodes[index][child_nodes] = allNodes.concat(childNodes);
-    //     }
-    // })
-    for (const node of currentLevelNodes) {
-        if (node.has_child) {
-            const childNodes = await getSpaceNodeAll2(spaceId, node.node_token);
-            allNodes = allNodes.concat(childNodes);
+    // Keep directory level
+    if (structure) {
+        let index = 0
+        for (const node of currentLevelNodes) {
+            if (node.has_child) {
+                const childNodes = await getSpaceNodeAll2(spaceId, node.node_token, structure);
+                allNodes[index]['child_nodes'] = childNodes
+            }
+            index++
+        }
+    } else {
+        // A single-level array
+        for (const node of currentLevelNodes) {
+            if (node.has_child) {
+                const childNodes = await getSpaceNodeAll2(spaceId, node.node_token);
+                allNodes = allNodes.concat(childNodes);
+            }
         }
     }
 
